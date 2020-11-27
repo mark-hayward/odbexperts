@@ -1,0 +1,28 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: An AWS Serverless Specification template describing your function.
+Resources:
+  OdomaticOdomaticAuthoriser14GA8RZS5YZ2F:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: Authoriser.handler
+      Runtime: python3.7
+      CodeUri: .
+      Description: ''
+      MemorySize: 128
+      Timeout: 3
+      Role: >-
+        arn:aws:iam::251646521350:role/Odomatic-AuthoriserLambdaRole-1GR2CBQSO67DT
+      Events:
+        Api1:
+          Type: Api
+          Properties:
+            Path: /MyResource
+            Method: ANY
+        Api2:
+          Type: Api
+          Properties:
+            Path: /MyResource
+            Method: ANY
+      Tags:
+        'lambda:createdBy': SAM

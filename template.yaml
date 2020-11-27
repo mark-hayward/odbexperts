@@ -1,0 +1,299 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: API Gateway with various paths and a lambda authoriser.
+Resources:
+  Odomatic:
+    Type: AWS::Serverless::Function
+    Properties:
+      Role:
+        Fn::GetAtt:
+        - OdomaticLambdaRole
+        - Arn
+      CodeUri: Odomatic/
+      Handler: Odomatic.handler
+      Runtime: python3.8
+      MemorySize: 128
+      Events:
+        GetVersion:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: OdomaticApi
+            Path: /GetVersion
+            Method: GET
+            Auth:
+              Authorizer: OdomaticAuthoriser
+        GetRequest:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: OdomaticApi
+            Path: /GetRequest
+            Method: GET
+            Auth:
+              Authorizer: OdomaticAuthoriser
+            RequestParameters:
+            - method.request.querystring.reg:
+                Required: true
+                Caching: false
+            - method.request.querystring.requestType:
+                Required: true
+                Caching: false
+            - method.request.querystring.engine:
+                Required: true
+                Caching: false
+            - method.request.querystring.fuel:
+                Required: true
+                Caching: false
+            - method.request.querystring.year:
+                Required: true
+                Caching: false
+            - method.request.querystring.model:
+                Required: true
+                Caching: false
+            - method.request.querystring.make:
+                Required: true
+                Caching: false
+        Convert:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: OdomaticApi
+            Path: /Convert
+            Method: GET
+            Auth:
+              Authorizer: OdomaticAuthoriser
+            RequestParameters:
+            - method.request.querystring.conv_number:
+                Required: true
+                Caching: false
+            - method.request.querystring.raw_data:
+                Required: true
+                Caching: false
+            - method.request.querystring.reg:
+                Required: true
+                Caching: false
+        ReportPID:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: OdomaticApi
+            Path: /ReportPID
+            Method: GET
+            Auth:
+              Authorizer: OdomaticAuthoriser
+            RequestParameters:
+            - method.request.querystring.reg:
+                Required: true
+                Caching: false
+            - method.request.querystring.requestType:
+                Required: true
+                Caching: false
+            - method.request.querystring.engine:
+                Required: true
+                Caching: false
+            - method.request.querystring.fuel:
+                Required: true
+                Caching: false
+            - method.request.querystring.year:
+                Required: true
+                Caching: false
+            - method.request.querystring.model:
+                Required: true
+                Caching: false
+            - method.request.querystring.make:
+                Required: true
+                Caching: false
+  OdomaticAuthoriser:
+    Type: AWS::Serverless::Function
+    Properties:
+      Role:
+        Fn::GetAtt:
+        - AuthoriserLambdaRole
+        - Arn
+      CodeUri: OdomaticAuthoriser/
+      Handler: Authoriser.handler
+      Runtime: python3.8
+      MemorySize: 128
+  EmailLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Role:
+        Fn::GetAtt:
+        - EmailLambdaRole
+        - Arn
+      CodeUri: EmailLambda/
+      Handler: Email.handler
+      Runtime: python3.8
+      MemorySize: 128
+  OdomaticApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      EndpointConfiguration: REGIONAL
+      Auth:
+        Authorizers:
+          OdomaticAuthoriser:
+            FunctionArn:
+              Fn::GetAtt:
+              - OdomaticAuthoriser
+              - Arn
+  RequestsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: UserId
+        AttributeType: S
+      - AttributeName: Timestamp
+        AttributeType: N
+      - AttributeName: Date
+        AttributeType: S
+      KeySchema:
+      - AttributeName: UserId
+        KeyType: HASH
+      - AttributeName: Timestamp
+        KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      TableName: OBDRequests
+      GlobalSecondaryIndexes:
+      - IndexName: Date-Index
+        KeySchema:
+        - AttributeName: Date
+          KeyType: HASH
+        Projection:
+          ProjectionType: ALL
+  CredentialsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: UserId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: UserId
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      TableName: Credentials
+  EmailCloudWatchEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: CloudWatch schedule to send request emails on the first day of
+        the month
+      ScheduleExpression: cron(0 0 1 * ? *)
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - EmailLambda
+          - Arn
+        Id: Email-Target
+  LambdaSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - EmailLambda
+        - Arn
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EmailCloudWatchEvent
+        - Arn
+  OdomaticLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName:
+          Fn::Sub: ${AWS::StackName}-OdomaticDynamoTablePolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:PutItem
+            Resource:
+              Fn::GetAtt:
+              - RequestsTable
+              - Arn
+      - PolicyName:
+          Fn::Sub: ${AWS::StackName}-OdomaticLambdaSESPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - ses:SendEmail
+            Resource: '*'
+  AuthoriserLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName:
+          Fn::Sub: ${AWS::StackName}-AuthoriserDynamoTablePolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:Query
+            Resource:
+            - Fn::GetAtt:
+              - CredentialsTable
+              - Arn
+  EmailLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName:
+          Fn::Sub: ${AWS::StackName}-EmailLambdaDynamoPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:Query
+            Resource:
+            - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/OBDRequests
+            - Fn::Sub: arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/OBDRequests/index/*
+      - PolicyName:
+          Fn::Sub: ${AWS::StackName}-EmailLambdaSESPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - ses:SendRawEmail
+            Resource: '*'
