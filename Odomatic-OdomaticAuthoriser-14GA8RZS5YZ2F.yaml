@@ -6,7 +6,7 @@ Resources:
     Type: 'AWS::Serverless::Function'
     Properties:
       Handler: Authoriser.handler
-      Runtime: python3.7
+      Runtime: python3.8
       CodeUri: .
       Description: ''
       MemorySize: 128
